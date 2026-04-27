@@ -1,71 +1,96 @@
 import time
 import pytest
 
-from src.models import Apartment, Tenant, Parameters
 from src.manager import Manager
+from src.models import Apartment, Parameters, Tenant
 
 
 def _create_n_apartments(n: int) -> dict:
-    """Return a dict of n apartments with keys 'apart-0', 'apart-1', ..., 'apart-(n-1)'."""
-    return {f"apart-{i}": Apartment(key=f"apart-{i}", name=f"Apart {i}", area_m2=100.0, location=f"{i} Main St", rooms={}) for i in range(n)}
+    return {
+        f"apart-{i}": Apartment(
+            key=f"apart-{i}",
+            name=f"Apart {i}",
+            area_m2=100.0,
+            location=f"{i} Main St",
+            rooms={},
+        )
+        for i in range(n)
+    }
+
 
 def _create_n_tenants(n: int, m: int) -> dict:
-    """Return a dict of n tenants with keys 'tenant-0', 'tenant-1', ..., 'tenant-(n-1)'. Every m-th tenant is assigned to an existing apartment, the rest are assigned to non-existing apartments."""
-    return {f"tenant-{i}": Tenant(key=f"tenant-{i}", name=f"Tenant {i}", apartment=f"apart-{i % m}", room='room-example',
-                                  deposit_pln=0.0, rent_pln=0.0, date_agreement_from='2025-01-01', date_agreement_to='2025-12-31') for i in range(n)}
+    return {
+        f"tenant-{i}": Tenant(
+            name=f"Tenant {i}",
+            apartment=f"apart-{i % m}",
+            room="room-example",
+            deposit_pln=0.0,
+            rent_pln=0.0,
+            date_agreement_from="2025-01-01",
+            date_agreement_to="2025-12-31",
+        )
+        for i in range(n)
+    }
 
 
 def test_search_for_apartment_large_dataset():
-    """Searching for an apartment in a dataset of 10 000 apartments should complete within the time limit."""
-    ALLOWED_SEARCH_TIME_MS = 1  # 1 millisecond
-    N = 100_000
+    allowed_search_time_ms = 1
+    n_apartments = 100_000
+
     manager = Manager(Parameters())
-    manager.apartments = _create_n_apartments(N)
+    manager.apartments = _create_n_apartments(n_apartments)
 
-    exisitng_apartment_key = "apart-80901"
-    non_existent_apartment_key = "apart-1000000"
+    existing_key = "apart-80901"
+    missing_key = "apart-1000000"
 
+    start = time.perf_counter()
+    result_ok = manager.get_apartment(existing_key)
+    ok_time_ms = (time.perf_counter() - start) * 1e3
 
-    ok_search_time = time.perf_counter()
-    result_ok = manager.get_apartment(exisitng_apartment_key)
-    ok_search_time = (time.perf_counter() - ok_search_time) * 1e3  # convert to milliseconds
+    start = time.perf_counter()
+    result_fail = manager.get_apartment(missing_key)
+    fail_time_ms = (time.perf_counter() - start) * 1e3
 
-    fail_search_time = time.perf_counter()
-    result_fail = manager.get_apartment(non_existent_apartment_key)
-    fail_search_time = (time.perf_counter() - fail_search_time) * 1e3  # convert to milliseconds
-
-    assert type(result_ok) is Apartment
+    assert isinstance(result_ok, Apartment)
     assert result_fail is None
-    assert ok_search_time < ALLOWED_SEARCH_TIME_MS, (
-        f"Searching for existing apartment in {N} apartments took {ok_search_time:.3f}ms, limit {ALLOWED_SEARCH_TIME_MS}ms"
+
+    assert ok_time_ms < allowed_search_time_ms, (
+        f"Existing apartment search took {ok_time_ms:.3f}ms"
     )
-    assert fail_search_time < ALLOWED_SEARCH_TIME_MS, (
-        f"Searching for non-existing apartment in {N} apartments took {fail_search_time:.3f}ms, limit {ALLOWED_SEARCH_TIME_MS}ms"
+    assert fail_time_ms < allowed_search_time_ms, (
+        f"Missing apartment search took {fail_time_ms:.3f}ms"
     )
+
 
 def test_check_tenants_apartment_keys_large_dataset():
-    """Checking tenants' apartment keys in a dataset of 10 000 apartments and 100 000 tenants should complete within the time limit."""
-    pytest.skip(reason="This test is very time consuming, it is only for performance testing purposes and should not be run with the rest of the tests.")
-    ALLOWED_CREATE_TIME_S = 10  # 10 seconds   
-    ALLOWED_CHECK_TIME_MS = 10  # 10 milliseconds
-    N_APARTMENTS = 10_000
-    N_TENANTS = 1_000_000
+    pytest.skip(
+        reason=(
+            "Performance test skipped by default"
+        )
+    )
 
-    manager = Manager(Parameters()) 
+    allowed_create_time_s = 10
+    allowed_check_time_ms = 10
 
-    create_time = time.perf_counter()
-    manager.apartments = _create_n_apartments(N_APARTMENTS)
-    manager.tenants = _create_n_tenants(N_TENANTS, N_APARTMENTS + 1)  # every 10001-th tenant is assigned to a non-existing apartment  
-    create_time = (time.perf_counter() - create_time)  # convert to seconds
+    n_apartments = 10_000
+    n_tenants = 1_000_000
 
-    check_time = time.perf_counter()
+    manager = Manager(Parameters())
+
+    start = time.perf_counter()
+    manager.apartments = _create_n_apartments(n_apartments)
+    manager.tenants = _create_n_tenants(n_tenants, n_apartments + 1)
+    create_time_s = time.perf_counter() - start
+
+    start = time.perf_counter()
     result = manager.check_tenants_apartment_keys()
-    check_time = (time.perf_counter() - check_time) * 1e3  # convert to milliseconds
+    check_time_ms = (time.perf_counter() - start) * 1e3
 
     assert result is False
-    assert check_time < ALLOWED_CHECK_TIME_MS, (
-        f"Checking tenants' apartment keys in {N_APARTMENTS} apartments and {N_TENANTS} tenants took {check_time:.3f}ms, limit {ALLOWED_CHECK_TIME_MS}ms"
+
+    assert check_time_ms < allowed_check_time_ms, (
+        f"Tenant validation took {check_time_ms:.3f}ms"
     )
-    assert create_time < ALLOWED_CREATE_TIME_S, (
-        f"Creating {N_APARTMENTS} apartments and {N_TENANTS} tenants took {create_time:.3f}s, limit {ALLOWED_CREATE_TIME_S}s"
+    assert create_time_s < allowed_create_time_s, (
+        f"Data creation took {create_time_s:.3f}s"
     )
